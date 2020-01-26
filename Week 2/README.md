@@ -1,0 +1,1 @@
+In this week we explore the returns on stocks, specifically S&P500 during dividend date. As expected, the returns drop on dividend date. Secondly, there are excel exercises done in class. Found to apply real finance knowledge to actual data and doing these mini projects to calculate WACC or cost of capital. 

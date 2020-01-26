@@ -1,0 +1,76 @@
+---
+title: "CA2"
+author: "Redmond Xia"
+date: "January 25, 2020"
+output: pdf_document
+---
+
+## Executive Summary
+
+  In this assignment, we are interested to learn how stocks perform in terms of excess rates (Stock excess of S&P 500) of return when they are actually paying a dividend for the years 2014-2018. We examine the stocks on the S&P500 daily returns for 10 trading days before and after the day the stocks paid the dividends. We expect the returns to drop because the stock loses values because it had paid its dividends already.
+## Assumptions and Methods
+The data set I used for this homework was in CRSP/Annual Update/Stock/Security Files/CRSP daily stock. In there I used the variables Ticker, Declaration date, Return without dividends and return on S&P Composite index. I downloaded the constiuents of S&P 500 from datahub to grab only the S&P 500 companies. Afterwards, I took the returns without dividends subtract the S&P composite index to get the excess returns. For every 21 day periods I sum them up and divide it by the amount of 21 days periods there are in this data set.
+```{r setup, echo=FALSE, warning=FALSE}
+library(readr)
+sp500 <- read_csv("sp500.csv", col_types = cols(DCLRDT = col_date(format = "%Y%m%d"), 
+    PAYDT = col_date(format = "%Y%m%d"), 
+    PERMNO = col_skip(), RCRDDT = col_date(format = "%Y%m%d"), 
+    date = col_date(format = "%Y%m%d")))
+
+sp500$EXCESS <- sp500$RETX - sp500$sprtrn
+divDay <- which(!is.na(sp500$DCLRDT))
+returns <- numeric(21)
+count <- 0
+```
+## Results and Answer
+As expected, the returns for the day that the dividends are given is much lower for the stocks. As you can see below is the graph of the mean returns for 10 days before and 10 days after the dividends. The drop shows the day  The mean without the day drop return is 7.954317e-05. The value for the drop is -0.005049146. The drop is value is roughly 63 times the mean returns without the drop.
+```{r,warning=FALSE, echo = FALSE}
+for(i in divDay) {
+  if((sp500$date[i - 10] < sp500$date[i]) && (sp500$date[i] < sp500$date[i+10])) {
+    lower <- i - 10
+    upper <- i + 10
+    returns <- returns + sp500[lower:upper,]$EXCESS
+    count <- count + 1
+  }
+}
+returns <- returns / count
+plot(-10:10,returns, type = 'l', xlab = "Days Before/After Dividends")
+points(-10:10,returns)
+abline(v = returns[11], col = 'red')
+text(x = 1, y = -0.005, "div ", col = 'red')
+```
+```{r}
+mean(returns[-11]) # This is the mean of the higher level
+abs(min(returns)/mean(returns[-11])) # This is the amount
+```
+
+The following below is the code to produce is outputted
+```{r eval = FALSE}
+library(readr)
+sp500 <- read_csv("sp500.csv", col_types = cols(DCLRDT = col_date(format = "%Y%m%d"), 
+    PAYDT = col_date(format = "%Y%m%d"), 
+    PERMNO = col_skip(), RCRDDT = col_date(format = "%Y%m%d"), 
+    date = col_date(format = "%Y%m%d")))
+
+sp500$EXCESS <- sp500$RETX - sp500$sprtrn
+divDay <- which(!is.na(sp500$DCLRDT))
+returns <- numeric(21)
+count <- 0
+
+for(i in divDay) {
+  if((sp500$date[i - 10] < sp500$date[i]) && (sp500$date[i] < sp500$date[i+10])) {
+    lower <- i - 10
+    upper <- i + 10
+    returns <- returns + sp500[lower:upper,]$EXCESS
+    count <- count + 1
+  }
+}
+returns <- returns / count
+plot(-10:10,returns, type = 'l', xlab = "Days Before/After Dividends")
+points(-10:10,returns)
+abline(v = returns[11], col = 'red')
+text(x = 1, y = -0.005, "div ", col = 'red')
+mean(returns[-11])
+abs(min(returns)/mean(returns[-11]))
+```
+
