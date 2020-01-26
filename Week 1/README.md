@@ -1,1 +1,1 @@
-In this week we explore finding data online and calculating averages for returns. There could be a lot more improvements in codes and commenting, however I found this exercise to be very insightful and fun!
+In this week we explore finding data online and calculating averages for returns. There could be a lot more improvements in codes and commenting, however I found this exercise to be very insightful and fun! The R code was used to generate the output.
