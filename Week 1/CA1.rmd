@@ -1,0 +1,303 @@
+---
+title: "Computer Assignment 1"
+author: "Redmond Xia"
+date: "1/14/2020"
+output: pdf_document
+---
+1. Executive summary
+
+The following data are found in https://fred.stlouisfed.org/series/DFF for the short term rate.
+I found the the rest of the data on WRDS.
+CRSP/Annual Update/Treasuries/CRSP Treasuries - Fixed Term Indexes for the 1-yr and 5-yr term.
+I used the CRSP/Annual Update/Treasuries/CRSP TREASURIES - Monthly Riskfree Series (1-month and 3-month) for the one month rates.
+The S & P 500 data is found here CRSP/Annual Update/Index/S&P 500 Indexes/CRSP Index File on the S&P 500. The S & P 500 did include the data.
+
+In this assignment, we calculate the arithmetic and geometric averages of the S&P 500 returns.
+Then bench mark by computing the risk premium, which is the average returns minus the risk free rate.
+The following values are found on the table below and are annualized because it is easier to think in annualized term. The third column is risk free arithmetic avg abbreviated. The fourth column is the arithmetic Risk premium average and the last column is the geometric risk premium average.
+```{r setup, echo = FALSE}
+suppressWarnings(suppressMessages(library(readxl)))
+sp500 <- read.csv("sp500.csv")
+names(sp500)[1] <- "Date"
+sp500 <- transform(sp500, Date = as.Date(as.character(Date), "%Y%m%d"))
+sp500$Date <- as.Date(sp500$Date)
+
+#This function selects the corresponding year term 
+# from the data. 2000003 correspond to 1yr bonds
+# and 2000005 corresponds to 5yr bond
+isYR <- function(data,yr) {
+  if(yr == 1) {
+    which(data == 2000003)
+  } else if (yr == 5){
+    which(data == 2000005)
+  }
+}
+
+feds_1m <- read.csv("fed_1m.csv")[,-1]
+feds_yr <- read.csv("feds_yr5.csv")
+feds_ffo <- read.csv("DFF.csv")
+feds_1yr <- feds_yr[isYR(feds_yr$KYTREASNOX,1),-1]
+feds_5yr <- feds_yr[isYR(feds_yr$KYTREASNOX,5),-1]
+colnames(feds_1yr)[1] <- c("Date")
+colnames(feds_5yr) <- c("Date","5TDYTM")
+colnames(feds_ffo)[1] <- c("Date")
+feds_1yr$Date <- as.Date(feds_1yr$Date,"%m/%d/%Y")
+feds_5yr$Date <- as.Date(feds_5yr$Date,"%m/%d/%Y")
+feds_ffo$Date <- as.Date(feds_ffo$Date)
+feds <- merge(merge(feds_1yr,feds_5yr,by = "Date"),feds_ffo, by = "Date")
+feds[,2:length(feds)] <- feds[,2:length(feds)] / 100
+feds_1m$TMYTM <- feds_1m$TMYTM / 100
+```
+
+```{r echo = FALSE }
+# Calculates the daily average
+avg_daily <- mean(sp500$vwretd, na.rm = TRUE) 
+avg_daily_annual <- avg_daily * 252
+
+suppressWarnings(suppressMessages(library(xts)))
+# finds the end of each month for each time series 
+sp500_xts <- xts(sp500, order.by = sp500$Date)
+sp_month_end <- endpoints(sp500_xts, on='month')
+sp_month_beg <- head(endpoints(sp500_xts, on='month')+1, -1)
+month_ret <- double(length(sp_month_beg))
+for (i in (1:length(sp_month_beg))){
+  month_ret[i] <- prod(sp500$vwretd[sp_month_beg[i] : sp_month_end[i+1]] + 1) - 1
+}
+avg_monthly <- mean(month_ret,na.rm = TRUE)
+avg_monthly_annual <- avg_monthly * 12
+
+# finds the end of each year in the time series and calculates the return from it
+sp_annual_end <- endpoints(sp500_xts, on='year')
+sp_annual_beg <- head(endpoints(sp500_xts, on='year')+1, -1)
+annual_ret <- double(length(sp_annual_beg))
+for (i in (1:length(sp_annual_beg))){
+  annual_ret[i] <- prod(sp500$vwretd[sp_annual_beg[i] : sp_annual_end[i+1]] + 1) - 1
+}
+avg_annual <- mean(annual_ret,na.rm = TRUE)
+
+# Finding the sequence of each 5 year ends and caclculate the mean
+sp_5yr_beg <- seq(1,length(annual_ret)-1,5)
+sp_5yr_end <- seq(5,length(annual_ret)-1,5)
+sp_5yr_ret <- double(length(sp_5yr_beg))
+for (i in (1:length(sp_5yr_beg))){
+  sp_5yr_ret[i] <- prod(annual_ret[sp_5yr_beg[i] : sp_5yr_end[i]] + 1) - 1
+}
+avg_5yr <- mean(sp_5yr_ret,na.rm = TRUE)
+avg_5yr_annual <- avg_5yr / 5
+avg_days_yr <- mean(diff(sp_annual_end))
+
+#Calculating the geometric averages returns for S&P 500
+geo_daily <- prod(sp500$vwretd + 1)^(1 / length(sp500$vwretd)) - 1
+geo_daily_annul <- (geo_daily+1)^avg_days_yr - 1 
+geo_monthly <- prod(month_ret + 1)^(1 / length(month_ret)) - 1
+geo_monthly_annul <- (geo_monthly+1)^12 - 1
+geo_annual <- prod(annual_ret + 1)^(1 / length(annual_ret)) - 1
+geo_5yr <- prod(sp_5yr_ret + 1)^(1 / length(sp_5yr_ret)) - 1
+geo_5yr_annual <- (geo_5yr+1)^(1/5) - 1
+
+# Storing the result
+results <- data.frame(matrix(ncol = 2, nrow = 4))
+colnames(results) <-  c("Arithmetic Avg", "Geometric Avg")
+rownames(results) <- c("Daily", "Monthly", "Yearly", "5-year")
+results$`Arithmetic Avg`<- c(avg_daily_annual, avg_monthly_annual, 
+                                             avg_annual, avg_5yr_annual)
+results$`Geometric Avg`<- c(geo_daily_annul, geo_monthly_annul,
+                                            geo_annual, geo_5yr_annual)
+
+```
+
+```{r echo = FALSE }
+# Calculating the arithmetic average for risk free rates
+avg_daily_yield <- mean(feds$DFF, na.rm = TRUE)
+avg_monthly_yield <- mean(feds_1m$TMYTM,na.rm = TRUE)
+
+feds_xts <- xts(feds, order.by = feds$Date)
+feds_annual_beg <- head(endpoints(feds_xts, on='year')+1, -1)
+annual_yield <- feds$TDYTM[feds_annual_beg]
+avg_annual_yield <- mean(annual_yield)
+
+feds_5yr_beg <- seq(1,length(annual_yield)-1,5)
+feds_5yr_yield <- annual_yield[feds_5yr_beg]
+feds_5yr_yield <- (feds_5yr_yield+1)^5 - 1
+avg_5yr_yield <- mean(feds_5yr_yield,na.rm = TRUE) / 5
+results$'Rf Arithmetic'<- c(avg_daily_yield, avg_monthly_yield, 
+                                                avg_annual_yield, avg_5yr_yield)
+```
+```{r echo=FALSE }
+# This is the average days in the year adjusted for the stocks
+avg_day_yr_yield <- mean(diff(feds_annual_beg + 1))
+feds$DFF <- feds$DFF / avg_day_yr_yield
+feds_1m$TMYTM <- feds_1m$TMYTM / 12
+
+merge <- merge(sp500,feds,by = "Date")
+
+rp_geo_daily <- merge$vwretd - merge$DFF
+rp_geo_month <- month_ret - feds_1m$TMYTM
+rp_geo_annual <- annual_ret - annual_yield
+rp_geo_5yr <- sp_5yr_ret - feds_5yr_yield
+
+geo_daily_yield <- prod(rp_geo_daily+1)^(1/length(rp_geo_daily)) - 1
+geo_daily_yield_annual <- (geo_daily_yield+1) ^ 365 - 1
+geo_month_yield <- prod(rp_geo_month+1)^(1/length(rp_geo_month)) - 1
+geo_month_yield_annual <- (geo_month_yield+1) ^ 12 - 1
+geo_annual_yield <- prod(rp_geo_annual+1)^(1/length(rp_geo_annual)) - 1
+geo_5yr_yield <- prod(rp_geo_5yr+1)^(1/length(rp_geo_5yr)) - 1
+geo_5yr_yield_annual <- (geo_5yr_yield+1)^(1/5) - 1
+  
+rp_daily <- avg_daily_annual - avg_daily_yield
+rp_month <- avg_monthly_annual - avg_monthly_yield
+rp_annual <- avg_annual - avg_annual_yield
+rp_5yr <- avg_5yr_annual - avg_5yr_yield
+
+results$'Arith Risk Prem' <- c(rp_daily, rp_month, rp_annual, rp_5yr)
+results$'Geom Risk Prem'<- c(geo_daily_yield_annual, geo_month_yield_annual, 
+                                                  geo_annual_yield, geo_5yr_yield_annual)
+suppressWarnings(suppressMessages(library(kableExtra)))
+kable(results)
+```
+You can see that the values do not necessarily increase in a longer time horizon. 
+In addition, we see that the risk premium is roughly half of the S&P500 return, which means doesn't have a too big of a risk premium. 
+Thus, the self-financing strategies have performed positively.
+Yes, overlapping the longer-term series does lead to different inferences because you would be componding more and it would provide less standard deviation of returns.
+If the compounded rate is higher than the short-term series than you should strategize on a more frequent replicating profolio. It also seems the arithmetic risk premium is bigger than the geometric risk premium.
+
+2. Homework
+HW1 (indexes)
+Learn WRDS!
+Indexes: For the (CRSP) S&P500 with dividends, what was the average arithmetic and geometric historical mean rate of return for daily returns, for monthly returns, for annual returns, and for 5-year returns from 1/1/1973 through 12/31/2018? Do the same for excess rates of return above the prevailing short rate, the 30-day Treasury rate, the 1-year Treasury rate, and the 5-year Treasury rates, respectively. This answers the questions of "how would each of these four self-financed strategies have performed?" (Does overlapping the longer-term series lead to different inference?)
+Optional: How did HML, SMB, XMKT, etc. do in the last 5 / 10 / 20 / 50 years? What was the worst month?
+
+3. Figures
+There were only one figure. The results
+``` {r echo = FALSE}
+kable(results)
+```
+
+4. Codes
+The following below was the code to generate this output. Note this is commented.
+``` {r eval = FALSE}
+library(readxl)
+sp500 <- read.csv("sp500.csv")
+names(sp500)[1] <- "Date"
+sp500 <- transform(sp500, Date = as.Date(as.character(Date), "%Y%m%d"))
+sp500$Date <- as.Date(sp500$Date)
+
+isYR <- function(data,yr) {
+  if(yr == 1) {
+    which(data == 2000003)
+  } else if (yr == 5){
+    which(data == 2000005)
+  }
+}
+
+feds_1m <- read.csv("fed_1m.csv")[,-1]
+feds_yr <- read.csv("feds_yr5.csv")
+feds_ffo <- read.csv("DFF.csv")
+feds_1yr <- feds_yr[isYR(feds_yr$KYTREASNOX,1),-1]
+feds_5yr <- feds_yr[isYR(feds_yr$KYTREASNOX,5),-1]
+colnames(feds_1yr)[1] <- c("Date")
+colnames(feds_5yr) <- c("Date","5TDYTM")
+colnames(feds_ffo)[1] <- c("Date")
+colnames(feds_1m)[1] <- "Date"
+feds_1yr$Date <- as.Date(feds_1yr$Date,"%m/%d/%Y")
+feds_5yr$Date <- as.Date(feds_5yr$Date,"%m/%d/%Y")
+feds_ffo$Date <- as.Date(feds_ffo$Date)
+feds <- merge(merge(feds_1yr,feds_5yr,by = "Date"),feds_ffo, by = "Date")
+feds[,2:length(feds)] <- feds[,2:length(feds)] / 100
+feds_1m$TMYTM <- feds_1m$TMYTM / 100
+
+avg_daily <- mean(sp500$vwretd, na.rm = TRUE)
+avg_daily_annual <- avg_daily * 252
+
+library(xts)
+sp500_xts <- xts(sp500, order.by = sp500$Date)
+sp_month_end <- endpoints(sp500_xts, on='month')
+sp_month_beg <- head(endpoints(sp500_xts, on='month')+1, -1)
+month_ret <- double(length(sp_month_beg))
+for (i in (1:length(sp_month_beg))){
+  month_ret[i] <- prod(sp500$vwretd[sp_month_beg[i] : sp_month_end[i+1]] + 1) - 1
+}
+avg_monthly <- mean(month_ret,na.rm = TRUE)
+avg_monthly_annual <- avg_monthly * 12
+
+sp_annual_end <- endpoints(sp500_xts, on='year')
+sp_annual_beg <- head(endpoints(sp500_xts, on='year')+1, -1)
+annual_ret <- double(length(sp_annual_beg))
+for (i in (1:length(sp_annual_beg))){
+  annual_ret[i] <- prod(sp500$vwretd[sp_annual_beg[i] : sp_annual_end[i+1]] + 1) - 1
+}
+avg_annual <- mean(annual_ret,na.rm = TRUE)
+
+sp_5yr_beg <- seq(1,length(annual_ret)-1,5)
+sp_5yr_end <- seq(5,length(annual_ret)-1,5)
+sp_5yr_ret <- double(length(sp_5yr_beg))
+for (i in (1:length(sp_5yr_beg))){
+  sp_5yr_ret[i] <- prod(annual_ret[sp_5yr_beg[i] : sp_5yr_end[i]] + 1) - 1
+}
+avg_5yr <- mean(sp_5yr_ret,na.rm = TRUE)
+avg_5yr_annual <- avg_5yr / 5
+avg_days_yr <- mean(diff(sp_annual_end))
+geo_daily <- prod(sp500$vwretd + 1)^(1 / length(sp500$vwretd)) - 1
+geo_daily_annul <- (geo_daily+1)^avg_days_yr - 1
+geo_monthly <- prod(month_ret + 1)^(1 / length(month_ret)) - 1
+geo_monthly_annul <- (geo_monthly+1)^12 - 1
+geo_annual <- prod(annual_ret + 1)^(1 / length(annual_ret)) - 1
+geo_5yr <- prod(sp_5yr_ret + 1)^(1 / length(sp_5yr_ret)) - 1
+geo_5yr_annual <- (geo_5yr+1)^(1/5) - 1
+
+
+results <- data.frame(matrix(ncol = 2, nrow = 4))
+colnames(results) <-  c("Arithmetic Avg", "Geometric Avg")
+rownames(results) <- c("Daily", "Monthly", "Yearly", "5-year")
+results$`Arithmetic Avg`<- c(avg_daily_annual, avg_monthly_annual,
+                                             avg_annual, avg_5yr_annual)
+results$`Geometric Avg`<- c(geo_daily_annul, geo_monthly_annul,
+                                            geo_annual, geo_5yr_annual)
+
+
+avg_daily_yield <- mean(feds$DFF, na.rm = TRUE)
+avg_monthly_yield <- mean(feds_1m$TMYTM,na.rm = TRUE)
+
+feds_xts <- xts(feds, order.by = feds$Date)
+feds_annual_beg <- head(endpoints(feds_xts, on='year')+1, -1)
+annual_yield <- feds$TDYTM[feds_annual_beg]
+avg_annual_yield <- mean(annual_yield)
+
+feds_5yr_beg <- seq(1,length(annual_yield)-1,5)
+feds_5yr_yield <- annual_yield[feds_5yr_beg]
+feds_5yr_yield <- (feds_5yr_yield+1)^5 - 1
+avg_5yr_yield <- mean(feds_5yr_yield,na.rm = TRUE) / 5
+results$'Rf Arithmetic'<- c(avg_daily_yield, avg_monthly_yield,
+                                                avg_annual_yield, avg_5yr_yield)
+
+avg_day_yr_yield <- mean(diff(feds_annual_beg + 1))
+feds$DFF <- feds$DFF / avg_day_yr_yield
+feds_1m$TMYTM <- feds_1m$TMYTM / 12
+
+merge <- merge(sp500,feds,by = "Date")
+
+rp_geo_daily <- merge$vwretd - merge$DFF
+rp_geo_month <- month_ret - feds_1m$TMYTM
+rp_geo_annual <- annual_ret - annual_yield
+rp_geo_5yr <- sp_5yr_ret - feds_5yr_yield
+
+geo_daily_yield <- prod(rp_geo_daily+1)^(1/length(rp_geo_daily)) - 1
+geo_daily_yield_annual <- (geo_daily_yield+1) ^ 365 - 1
+geo_month_yield <- prod(rp_geo_month+1)^(1/length(rp_geo_month)) - 1
+geo_month_yield_annual <- (geo_month_yield+1) ^ 12 - 1
+geo_annual_yield <- prod(rp_geo_annual+1)^(1/length(rp_geo_annual)) - 1
+geo_5yr_yield <- prod(rp_geo_5yr+1)^(1/length(rp_geo_5yr)) - 1
+geo_5yr_yield_annual <- (geo_5yr_yield+1)^(1/5) - 1
+
+rp_daily <- avg_daily_annual - avg_daily_yield
+rp_month <- avg_monthly_annual - avg_monthly_yield
+rp_annual <- avg_annual - avg_annual_yield
+rp_5yr <- avg_5yr_annual - avg_5yr_yield
+
+
+results$'Arith Risk Prem' <- c(rp_daily, rp_month, rp_annual, rp_5yr)
+results$'Geom Risk Prem'<- c(geo_daily_yield_annual, geo_month_yield_annual,
+                                                  geo_annual_yield, geo_5yr_yield_annual)
+suppressWarnings(suppressMessages(library(kableExtra)))
+kable(results)
+```
