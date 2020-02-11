@@ -1,0 +1,180 @@
+---
+title: "CA4"
+author: "Redmond Xia"
+date: "February 2, 2020"
+output: pdf_document
+---
+
+## Executive Summary
+In this assigment, perform a basic Fama-Mac Beth type of regression to predict the cross-sectional stock returns. The input variables are the firm-marketcap, $(price_t - price_{t-36})/price_{t-36}$, and $1/price$. We analyze the annual fundamental data for the S&P 500 companies. We expect that price has a little predictive powers with returns as this is common knowledge. 
+
+## Assumptions and Methods
+The data I used is found in WRDS/Get Data/CRSP/Annual Update/Stock/Security Files/CRSP Monthly Stock. The relevant variables were price, # shares outstanding, and holding period return. The relevant tickers were found on datahub https://datahub.io/core/s-and-p-500-companies. We assume the time series momentum from 36 months ago is relevant and the inverse of price is more useful than the price. In addition, I arbitrarily started the time frame from 1963 to 2018 which will give us sufficient data points. It assume the companies that were 2018 S&P 500 is also an S&P500 company in the past. It also goes to say that a lot of the companies did not exists since then. Thus, the lag 36 returns may not exists for small firms and the lag 36 returns does not exists for the first 36 months of any firms. Next, we calculate the Fama MacBeth regression. The regression is a two step process. First, run the cross sectional regression to obtain the beta for the input variables. Next, we run the regression aggregate average return for each stock with the input variables as the beta obtained in the first regression. The next section explains the result of my regression.
+```{r setup, echo = FALSE}
+suppressWarnings(suppressMessages(library(lubridate)))
+suppressWarnings(suppressMessages(library(dplyr)))
+sp500 <- read.csv("sp500.csv", stringsAsFactors = FALSE)[-1]
+sp500$date <- as.Date(sp500$date,"%Y/%m/%d")
+ticker <- read.delim("constituents_2018.txt", header = FALSE)$V1
+colnames(sp500)[1:2] <- c("date","TICKER")
+sp500$date <- ceiling_date(sp500$date, "month") - days(1)
+sp500$MKTCAP <- sp500$PRC * sp500$SHROUT 
+sp500$PRCINV <- 1 / sp500$PRC
+
+# Filtering for the SP500 stock data
+tempSP500 <- c()
+for(i in ticker) {
+  stocks <- sp500[sp500$TICKER == i,]
+  tempSP500 <- rbind(tempSP500, stocks)
+}
+sp500 <- tempSP500
+
+ticker <- unique(sp500$TICKER)
+tempSP500 <- c()
+for(i in ticker) {
+  stocks <- sp500[sp500$TICKER == i,]
+  stocks$LAG36_RET <- (stocks$PRC - dplyr::lag(stocks$PRC,36)) / dplyr::lag(stocks$PRC,36)
+  tempSP500 <- rbind(tempSP500, stocks)
+}
+sp500 <- tempSP500
+suppressWarnings(sp500$RET <- as.numeric(sp500$RET))
+```
+
+## Results and Answers.
+As you can see below, the summary of the regression is outputted. These are the lambdas. I would like to note the lambda for market cap. This beta is consistent because in the original data, the market cap is relatively large. Thus, in running the first regression, it makes the Beta really small. Rerunning the beta for the second time on a really small beta makes this beta really large. Since the regression has a very small R^2, we explore the plots. In addition, it shows that non of the variables are significantly different from zero. The F-stat also fails to reject the null hypothesis.
+```{r, echo = FALSE}
+sp500Stat <- sp500 %>% mutate(year = format(as.Date(date), "%Y")) %>% group_by(TICKER,year) %>% 
+                       summarise(AnnualRET = mean(RET,na.rm = TRUE),MarketCAP = mean(MKTCAP,na.rm = TRUE),
+                                 PriceINV = mean(PRCINV,na.rm = TRUE), LagRET36 = mean(LAG36_RET,na.rm = TRUE))
+sp500Stat <- na.omit(sp500Stat)
+
+FamaMCB <- sp500Stat %>%  group_by(TICKER)%>% do(data.frame(avgRET = mean(.$AnnualRET),
+                                              betas=matrix((lm(.$AnnualRET~.$MarketCAP + .$LagRET36 +
+                                              .$PriceINV))$coefficients,nrow=1))) %>% na.omit %>% as.data.frame
+
+colnames(FamaMCB) <- c("TICKER","avgRET","AnnualRET","MarketCap","LagRET36","PriceInv")
+FamaMCBReg <- lm(FamaMCB$avgRET~(FamaMCB$MarketCap+FamaMCB$LagRET36+FamaMCB$PriceInv-1))
+summary(FamaMCBReg)
+lambdas <- t(FamaMCBReg$coefficients)
+colnames(lambdas) <- c("Lambda-MarketCap","Lambda-LagRet36","Lambda-Price Inversed")
+lambdas
+```
+
+# Ploting data
+In this section we explore the poor variation explained. Below is a pair plot of the three variable inputs into average returns predictions. The plot shows that there isn't much variability or correlations with each of the variables. However, there does seems to be a bell curve distribution of annnual return. The market cap looks varied, but still very skewed. The other two variables are very skewed and very centered. This explains the poor linear predictiveness of the input variables. Next, we explore ways to improve the model.
+```{r echo=FALSE}
+pairs(sp500Stat[,c(-1,-2)])
+```
+
+
+# Extra^2 There are other variables that can predict future returns reliably.
+This section we explore Price/Earnings, Market Cap, PriceInv, and Accruals as input variables. Accruals is defined as $Accruals = \Delta Current Assets - \Delta Cash - \Delta Current Liabilities$. As you can see from the regression output below. The model R^2 is significantly better meaning he have a much better linear fit. The standard error is slightly worse. All variables still remain unsignificant, however it is very important to note that the F-statistics is still very significant. Thus, we can conclude that this model fits decently in predicting the avg returns. The second output is the analysis of variance table which says that the model with just market cap as a predictor itself is significant.
+```{r echo = FALSE}
+fundamental <- read.csv("fundamental.csv")[c(-1,-3)]
+fundamental$datadate <- format(as.Date(fundamental$datadate,"%Y/%m/%d"),"%Y")
+colnames(fundamental)[1:2] <- c("year","TICKER")
+tempFund <- c()
+tickF <- unique(fundamental$TICKER)
+for(i in tickF) {
+  tick <- fundamental[fundamental$TICKER == i, ]
+  tick$ACCRUAL <- c(0,diff(tick$act)) - c(0,diff(tick$ch)) - c(0,diff(tick$lct))
+  tempFund <- rbind(tempFund, tick)
+}
+fundamental <- tempFund
+
+FMBData <- merge(sp500Stat[,-length(sp500Stat)],fundamental[,-c(3,4,6)],by = c("year","TICKER"))
+FMBData$PE <- (1/FMBData$PriceINV) / FMBData$ebit
+FMBData <- na.omit(FMBData)
+
+FamaMCB2 <- FMBData %>% group_by(TICKER) %>% do(data.frame(avgRET = mean(.$AnnualRET),
+                                              betas=matrix((lm(.$AnnualRET~.$MarketCAP + .$PriceINV +
+                                              .$ACCRUAL + .$PE))$coefficients,nrow=1))) %>% na.omit %>% as.data.frame
+colnames(FamaMCB2) <- c("TICKER","avgRET","AnnualRET","MarketCap","PriceINV","Accruals","PE")
+FamaMCBReg2 <- lm(FamaMCB2$avgRET~(FamaMCB2$MarketCap+FamaMCB2$PriceINV+FamaMCB2$Accruals+FamaMCB2$PE-1))
+summary(FamaMCBReg2)
+anova(FamaMCBReg2)
+```
+
+The next plots shows the regression value plot. The residual plots does not look random and the qq-plot makes the normality assumption weak. The scaled location also doesn't look random and it's centered around the fitted values. Lastly, there is a few outliers that influences the residuals.
+```{r echo = FALSE}
+par(mfrow=c(2,2))
+suppressWarnings(plot(FamaMCBReg2))
+```
+In conclusion, one should use more accounting fundamentals than the price to predicts returns of the stocks. It also shows that linear regression necessarily does not prove that it is a powerful model against returns. A more powerful method should be used.
+
+## Appendix (Code)
+```{r eval = FALSE}
+suppressWarnings(suppressMessages(library(lubridate)))
+suppressWarnings(suppressMessages(library(dplyr)))
+sp500 <- read.csv("sp500.csv", stringsAsFactors = FALSE)[-1]
+sp500$date <- as.Date(sp500$date,"%Y/%m/%d")
+ticker <- read.delim("constituents_2018.txt", header = FALSE)$V1
+colnames(sp500)[1:2] <- c("date","TICKER")
+sp500$date <- ceiling_date(sp500$date, "month") - days(1)
+sp500$MKTCAP <- sp500$PRC * sp500$SHROUT 
+sp500$PRCINV <- 1 / sp500$PRC
+
+# Filtering for the SP500 stock data
+tempSP500 <- c()
+for(i in ticker) {
+  stocks <- sp500[sp500$TICKER == i,]
+  tempSP500 <- rbind(tempSP500, stocks)
+}
+sp500 <- tempSP500
+
+ticker <- unique(sp500$TICKER)
+tempSP500 <- c()
+for(i in ticker) {
+  stocks <- sp500[sp500$TICKER == i,]
+  stocks$LAG36_RET <- (stocks$PRC - dplyr::lag(stocks$PRC,36)) / dplyr::lag(stocks$PRC,36)
+  tempSP500 <- rbind(tempSP500, stocks)
+}
+sp500 <- tempSP500
+suppressWarnings(sp500$RET <- as.numeric(sp500$RET))
+
+sp500Stat <- sp500 %>% mutate(year = format(as.Date(date), "%Y")) %>% group_by(TICKER,year) %>% 
+                       summarise(AnnualRET = mean(RET,na.rm = TRUE),MarketCAP = mean(MKTCAP,na.rm = TRUE),
+                                 PriceINV = mean(PRCINV,na.rm = TRUE), LagRET36 = mean(LAG36_RET,na.rm = TRUE))
+sp500Stat <- na.omit(sp500Stat)
+
+FamaMCB <- sp500Stat %>%  group_by(TICKER)%>% do(data.frame(avgRET = mean(.$AnnualRET),
+                                              betas=matrix((lm(.$AnnualRET~.$MarketCAP + .$LagRET36 +
+                                              .$PriceINV))$coefficients,nrow=1))) %>% na.omit %>% as.data.frame
+
+colnames(FamaMCB) <- c("TICKER","avgRET","AnnualRET","MarketCap","LagRET36","PriceInv")
+FamaMCBReg <- lm(FamaMCB$avgRET~(FamaMCB$MarketCap+FamaMCB$LagRET36+FamaMCB$PriceInv-1))
+summary(FamaMCBReg)
+lambdas <- t(FamaMCBReg$coefficients)
+colnames(lambdas) <- c("Lambda-MarketCap","Lambda-LagRet36","Lambda-Price Inversed")
+lambdas
+
+pairs(sp500Stat[,c(-1,-2)])
+
+fundamental <- read.csv("fundamental.csv")[c(-1,-3)]
+fundamental$datadate <- format(as.Date(fundamental$datadate,"%Y/%m/%d"),"%Y")
+colnames(fundamental)[1:2] <- c("year","TICKER")
+tempFund <- c()
+tickF <- unique(fundamental$TICKER)
+for(i in tickF) {
+  tick <- fundamental[fundamental$TICKER == i, ]
+  tick$ACCRUAL <- c(0,diff(tick$act)) - c(0,diff(tick$ch)) - c(0,diff(tick$lct))
+  tempFund <- rbind(tempFund, tick)
+}
+fundamental <- tempFund
+
+FMBData <- merge(sp500Stat[,-length(sp500Stat)],fundamental[,-c(3,4,6)],by = c("year","TICKER"))
+FMBData$PE <- (1/FMBData$PriceINV) / FMBData$ebit
+FMBData <- na.omit(FMBData)
+
+FamaMCB2 <- FMBData %>% group_by(TICKER) %>% do(data.frame(avgRET = mean(.$AnnualRET),
+                                              betas=matrix((lm(.$AnnualRET~.$MarketCAP + .$PriceINV +
+                                              .$ACCRUAL + .$PE))$coefficients,nrow=1))) %>% na.omit %>% as.data.frame
+colnames(FamaMCB2) <- c("TICKER","avgRET","AnnualRET","MarketCap","PriceINV","Accruals","PE")
+FamaMCBReg2 <- lm(FamaMCB2$avgRET~(FamaMCB2$MarketCap+FamaMCB2$PriceINV+FamaMCB2$Accruals+FamaMCB2$PE-1))
+summary(FamaMCBReg2)
+anova(FamaMCBReg2)
+
+par(mfrow=c(2,2))
+plot(FamaMCBReg2)
+```
+
